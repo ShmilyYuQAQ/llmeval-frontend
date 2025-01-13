@@ -1,0 +1,115 @@
+<template>
+    <div
+        style="
+            display: flex;
+            justify-content: center;
+            flex-direction: column;
+            align-items: center;
+        "
+    >
+        <div class="model-card-container">
+            <ModelCard
+                v-for="(item, index) in paginatedModel"
+                :key="index"
+                :model="item"
+            ></ModelCard>
+        </div>
+        <el-pagination
+            background
+            :current-page="pagination.currentPage"
+            :page-size="pagination.pageSize"
+            :total="totalModels"
+            layout="prev, pager, next"
+            @current-change="handleCurrentChange"
+            @size-change="handleSizeChange"
+            style="margin-top: 20px"
+        >
+        </el-pagination>
+    </div>
+</template>
+
+<script>
+import ModelCard from "./modelCard.vue";
+export default {
+    components: {
+        ModelCard,
+    },
+    data() {
+        return {
+            totalModels: 0,
+            pagination: {
+                currentPage: 1,
+                pageSize: 12,
+            },
+            model: {
+                //测试数据
+                name: "腾讯混元大模型",
+                institution: "腾讯云",
+                imgUrl: "./images/tengxun.png",
+                description:
+                    "由腾讯研发的大语言模型，具备强大的中文创作能力，复杂语境下的逻辑推理能力，以及可靠的任务执行能力。",
+                updateTime: "2024.09.25",
+                detailsUrl:
+                    "https://cloud.tencent.com/act/pro/Hunyuan-promotion",
+            },
+            data: null,
+            loading: false,
+            error: null,
+            models: [],
+        };
+    },
+    props: ["datas"],
+    methods: {
+        handleCurrentChange(newPage) {
+            this.pagination.currentPage = newPage;
+            this.updatePaginatedModel();
+        },
+        handleSizeChange(newSize) {
+            this.pagination.pageSize = newSize;
+            this.updatePaginatedModel();
+        },
+        updatePaginatedModel(datas = null) {
+            // 根据当前页和每页大小计算需要显示的模型列表
+            if (datas !== null) {
+                this.models = datas;
+            }
+            const start =
+                (this.pagination.currentPage - 1) * this.pagination.pageSize;
+            const end = start + this.pagination.pageSize;
+            this.paginatedModel = this.models.slice(start, end);
+        },
+    },
+    created() {
+        this.models = this.datas;
+    },
+    computed: {
+        models() {
+            return this.datas;
+        },
+        totalModels() {
+            return this.models.length;
+        },
+    },
+};
+</script>
+
+<style>
+.model-card-container {
+    width: 1300px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    align-items: center;
+    z-index: 1;
+    justify-content: flex-start;
+    margin: 0 auto;
+}
+
+@media screen and (max-width: 1280px) {
+    .model-card-container {
+        width: 90%;
+        margin: 0 auto;
+        justify-content: center;
+    }
+}
+</style>
