@@ -45,6 +45,7 @@
             </el-tag>
         </div>
         <FeatureSelector
+            ref="featureSelector"
             @custom-event="selectModel"
             :selected_tag="selected_tag"
             :tag_description="tag_description"
@@ -55,13 +56,16 @@
             :datas="datas"
             ref="modelCardContainer"
         ></modelCardContainer>
+        <EmptyResult v-if="!hasFilters" />
     </div>
 </template>
 <script>
 import axiosInstance from "@/plugins/axios";
+import EmptyResult from './emptyResult.vue';
 import FeatureSelector from "./featureSelector.vue";
 import FeatureSequencer from "./featureSequencer.vue";
 import modelCardContainer from "./modelCardContainer.vue";
+
 export default {
     data() {
         return {
@@ -75,12 +79,14 @@ export default {
             searchDatas: [],
             tagDatas: [],
             sequencerValue: 0,
+            isRestoringState: false,
         };
     },
     components: {
         FeatureSelector,
         FeatureSequencer,
         modelCardContainer,
+        EmptyResult,
     },
     methods: {
         processImagePath(data) {
@@ -97,6 +103,7 @@ export default {
                 const { data: { data } } = await axiosInstance.get("/model/");
                 this.datas = this.processImagePath(data);
                 this.originDatas = this.processImagePath(data);
+                // this.datas  = this.datas.slice(0, 7);
                 console.log(this.datas,"datas")
                 this.$refs.modelCardContainer.updatePaginatedModel(this.datas);
             } catch (error) {
@@ -113,15 +120,15 @@ export default {
                 this.tagDatas = this.processImagePath(modelResponse.data.data || []);
                 this.tag_description = descResponse.data.data;
                 
-                // 更新数据显示
                 this.datas = !this.activeSearchQuery ? this.tagDatas :
                     this.searchDatas.filter(searchItem => 
                         this.tagDatas.some(tagItem => String(tagItem.name) === String(searchItem.name))
                     );
                 this.sortDatas(this.sequencerValue);
-                this.originDatas = this.datas; // 保存原始数据，原始数据应该是经过标签或者搜索过滤后的数据
+                this.originDatas = this.datas;
                 this.selected_tag = tag;
                 this.$refs.modelCardContainer.updatePaginatedModel(this.datas);
+                this.$nextTick(() => this.updateUrlParams());
             } catch (error) {
                 this.handleError("标签筛选失败");
             }
@@ -139,13 +146,12 @@ export default {
             );
         },
         openSourceChange(value) {
-            if (!Array.isArray(value)) {
-                // console.log('Received invalid value type for openSourceChange:', value);
-                return;
-            }
+            if (!Array.isArray(value)) return;
+            
             this.activeFilters = [...value];
             this.datas = this.filterItems(this.activeFilters);
             this.$refs.modelCardContainer.updatePaginatedModel(this.datas);
+            this.$nextTick(() => this.updateUrlParams());
         },
         async handleSearch() {
             if (!this.searchQuery.trim()) {
@@ -160,7 +166,6 @@ export default {
                 
                 this.searchDatas = this.processImagePath(data || []);
                 this.activeSearchQuery = this.searchQuery;
-                // 如果搜索结果没有标签，则直接显示搜索结果 否则显示搜索结果和标签的交集
                 this.datas = !this.selected_tag[0] ? this.searchDatas :
                     this.searchDatas.filter(searchItem => 
                         this.tagDatas.some(tagItem => 
@@ -168,8 +173,9 @@ export default {
                         )
                     );
                 this.sortDatas(this.sequencerValue);
-                this.originDatas = this.datas; // 保存原始数据，原始数据应该是经过标签或者搜索过滤后的数据
+                this.originDatas = this.datas;
                 this.$refs.modelCardContainer.updatePaginatedModel(this.datas);
+                this.$nextTick(() => this.updateUrlParams());
             } catch (error) {
                 this.handleError("搜索失败");
             } finally {
@@ -180,12 +186,14 @@ export default {
             this.searchQuery = this.activeSearchQuery = "";
             this.searchDatas = [];
             await this.refreshData();
+            this.$nextTick(() => this.updateUrlParams());
         },
         async clearTag() {
-            this.selected_tag = "";
+            this.selected_tag = ["", ""];
             this.tag_description = "";
             this.tagDatas = [];
             await this.refreshData();
+            this.$nextTick(() => this.updateUrlParams());
         },
         async refreshData() {
             if (!this.searchQuery && !this.selected_tag[0]) {
@@ -195,9 +203,13 @@ export default {
             } else if (this.selected_tag[0]) {
                 await this.selectModel(this.selected_tag); // 如果有标签条件，则重新进行标签筛选
             }
-
+            // 如果存在开源闭源过滤条件，则进行过滤
             if (this.activeFilters.length) {
                 this.datas = this.filterItems(this.activeFilters);
+            }
+            // 如果存在排序条件，则进行排序
+            if(this.sequencerValue){
+                this.sortDatas(this.sequencerValue);
             }
 
             this.$refs.modelCardContainer.updatePaginatedModel(this.datas);
@@ -208,42 +220,199 @@ export default {
             console.error(message);
         },
         sequencerChange(value) {
-            if (typeof value !== 'number') {
-                return;
-            }
+            if (typeof value !== 'number') return;
+            
             this.sequencerValue = value;
             if(value === 0){
                 this.datas = this.originDatas;
             }
             this.datas = [...this.datas].sort((a, b) => {
                 switch (value) {
-                    case 1: // 发布时间排序
-                        return new Date(b.releaseDate) - new Date(a.releaseDate); // 降序：新的在前
-                    case 2: // 收藏量排序
-                        return b.favoritesCount - a.favoritesCount; // 降序：多的在前
+                    case 1:
+                        return new Date(b.releaseDate) - new Date(a.releaseDate);
+                    case 2:
+                        return b.favoritesCount - a.favoritesCount;
                     default:
                         return 0;
                 }
             });
             
             this.$refs.modelCardContainer.updatePaginatedModel(this.datas);
+            this.$nextTick(() => this.updateUrlParams());
         },
         sortDatas(value){
             this.datas = [...this.datas].sort((a, b) => {
                 switch (value) {
-                    case 1: // 发布时间排序
-                        return new Date(b.releaseDate) - new Date(a.releaseDate); // 降序：新的在前
-                    case 2: // 收藏量排序
-                        return b.favoritesCount - a.favoritesCount; // 降序：多的在前
+                    case 1:
+                        return new Date(b.releaseDate) - new Date(a.releaseDate);
+                    case 2:
+                        return b.favoritesCount - a.favoritesCount;
                     default:
                         return 0;
                 }
             });
-        }
+        },
+        validateTag(tag, tagId) {
+            // 通过 ref 获取 featureSelector 组件的标签数据
+            const featureSelector = this.$refs.featureSelector;
+            if (!featureSelector) return false;
+
+            const allTags = [
+                ...featureSelector.tags_0,
+                ...featureSelector.tags_1,
+                ...featureSelector.tags_2,
+                ...featureSelector.tags_3
+            ];
+
+            // 递归检查标签及其子标签
+            const isValidTag = (tags) => {
+                for (const tagItem of tags) {
+                    if (tagItem.value[0] === tag && String(tagItem.value[1]) === String(tagId)) {
+                        return true;
+                    }
+                    if (tagItem.subtags && tagItem.subtags.length) {
+                        if (isValidTag(tagItem.subtags)) {
+                            return true;
+                        }
+                    }
+                }
+                return false;
+            };
+
+            return isValidTag(allTags);
+        },
+
+        validateFilters(filters) {
+            const validFilters = ['开源', '不开源'];
+            return filters.every(filter => validFilters.includes(filter));
+        },
+
+        validateSort(sort) {
+            return [0, 1, 2].includes(Number(sort));
+        },
+
+        async restoreFromUrl() {
+            this.isRestoringState = true;
+            const { search, tag, tagId, filters, sort, page } = this.$route.query;
+
+            // 先恢复数据
+            if (search) {
+                this.searchQuery = search;
+                await this.handleSearch();
+            }
+
+            // 验证并恢复标签
+            if (tag && tagId) {
+                if (this.validateTag(tag, tagId)) {
+                    await this.selectModel([tag, tagId]);
+                } else {
+                    this.$message.error(`无效的标签参数: ${tag}`);
+                    // 移除无效的标签参数
+                    const query = { ...this.$route.query };
+                    delete query.tag;
+                    delete query.tagId;
+                    this.$router.replace({ query });
+                }
+            }
+
+            // 验证并恢复筛选器
+            if (filters) {
+                const filterArray = filters.split(',');
+                if (this.validateFilters(filterArray)) {
+                    this.openSourceChange(filterArray);
+                } else {
+                    this.$message.error('无效的筛选参数');
+                    // 移除无效的筛选参数
+                    const query = { ...this.$route.query };
+                    delete query.filters;
+                    this.$router.replace({ query });
+                }
+            }
+
+            // 验证并恢复排序
+            if (sort) {
+                const sortValue = parseInt(sort);
+                if (this.validateSort(sortValue)) {
+                    this.$refs.featureSequencer.setRadio(sortValue);
+                    this.sequencerChange(sortValue);
+                } else {
+                    this.$message.error('无效的排序参数');
+                    // 移除无效的排序参数
+                    const query = { ...this.$route.query };
+                    delete query.sort;
+                    this.$router.replace({ query });
+                }
+            }
+
+            // 最后恢复页码
+            if (page) {
+                const pageNum = parseInt(page);
+                this.$nextTick(() => {
+                    this.$refs.modelCardContainer?.handleCurrentChange(pageNum);
+                });
+            }
+
+            this.isRestoringState = false;
+        },
+
+        updateUrlParams() {
+            if (this.isRestoringState) return;
+            
+            const query = {};
+
+            if (this.activeSearchQuery) {
+                query.search = this.activeSearchQuery;
+            }
+
+            if (this.selected_tag[0] && this.selected_tag[1] && 
+                this.validateTag(this.selected_tag[0], this.selected_tag[1])) {
+                query.tag = this.selected_tag[0];
+                query.tagId = this.selected_tag[1];
+            }
+
+            if (this.activeFilters.length && this.validateFilters(this.activeFilters)) {
+                query.filters = this.activeFilters.join(',');
+            }
+
+            const sortValue = this.$refs.featureSequencer?.getRadio();
+            if (sortValue !== undefined && this.validateSort(sortValue)) {
+                query.sort = sortValue;
+            }
+
+            const currentPage = this.$refs.modelCardContainer?.pagination.currentPage;
+            if (currentPage && currentPage > 1) {
+                query.page = currentPage;
+            }
+
+            console.log('Updating URL with query:', query); // 添加调试日志
+
+            // 使用 nextTick 确保在 DOM 更新后执行路由更新
+            this.$nextTick(() => {
+                this.$router.replace({
+                    path: this.$route.path,
+                    query: Object.keys(query).length ? query : undefined
+                }).catch(err => {
+                    if (err.name !== 'NavigationDuplicated') {
+                        console.error('URL update failed:', err);
+                    }
+                });
+            });
+        },
     },
     created() {
-        this.fetchData();
+        this.fetchData().then(() => {
+            this.restoreFromUrl();
+        });
         this.activeFilters = ["开源", "不开源"];
+
+        // 添加路由变化监听
+        this.$watch(
+            () => this.$route.query,
+            (newQuery) => {
+                console.log('Route query changed:', newQuery); // 添加调试日志
+            },
+            { deep: true }
+        );
     },
     mounted(){
         this.sequencerValue = this.$refs.featureSequencer.getRadio();
@@ -253,6 +422,14 @@ export default {
             this.$refs.modelCardContainer.models = newVal;
             this.$refs.modelCardContainer.updatePaginatedModel();
         },
+        '$route.query': {
+            handler(newQuery, oldQuery) {
+                if (JSON.stringify(newQuery) !== JSON.stringify(oldQuery)) {
+                    this.restoreFromUrl();
+                }
+            },
+            deep: true
+        }
     },
     computed: {
         hasFilters() {
